@@ -136,3 +136,22 @@ export function inferProviderAndType(url?: string): { provider: Provider; resour
 
   return { provider: 'unknown', resourceType: 'other' }
 }
+
+/**
+ * Extracts cloud drive URL and optional access password from plain text.
+ */
+export function extractPanUrlAndPassword(text: string): { url?: string; password?: string } {
+  const urlRegex = /(https?:\/\/[^\s"'<>\n\r]+)/i
+  const match = urlRegex.exec(text)
+  if (!match) return {}
+
+  const url = match[1]
+
+  // Password / access code matching: 提取码: xxxx, 密码: xxxx, 访问码: xxxx
+  const pwdRegex = /(?:提取码|密码|访问码|pwd|code)[:：\s]*([a-zA-Z0-9]{4,8})/i
+  const pwdMatch = pwdRegex.exec(text)
+  const password = pwdMatch ? pwdMatch[1] : undefined
+
+  return { url, password }
+}
+

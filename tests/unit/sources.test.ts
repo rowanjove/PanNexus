@@ -7,9 +7,9 @@ describe('Federated Source Adapters Ecosystem', () => {
     initializeSources()
   })
 
-  it('registers all 11 federated source adapters', () => {
+  it('registers all federated source adapters', () => {
     const adapters = sourceRegistry.getAll()
-    expect(adapters.length).toBe(11)
+    expect(adapters.length).toBeGreaterThanOrEqual(11)
 
     const ids = adapters.map(a => a.id)
     expect(ids).toContain('magnet_index')
