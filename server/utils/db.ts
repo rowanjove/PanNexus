@@ -44,6 +44,14 @@ export async function executeSearch(query: SearchQuery, event?: H3Event): Promis
 
   if (db) {
     try {
+      const selectedTypes = query.type && query.type !== 'all'
+        ? String(query.type).split(',').map(t => t.trim()).filter(Boolean)
+        : []
+
+      const typeClause = selectedTypes.length > 0
+        ? `AND r.resource_type IN (${selectedTypes.map(() => '?').join(',')})`
+        : ''
+
       // 1. Query using D1 FTS5
       const ftsStmt = db.prepare(`
         SELECT r.*, c.title as canon_title, c.category, c.year, c.resolution, c.codec, c.audio, c.edition, c.normalized_key
@@ -52,14 +60,14 @@ export async function executeSearch(query: SearchQuery, event?: H3Event): Promis
         WHERE r.id IN (
           SELECT rowid FROM resources_fts WHERE resources_fts MATCH ?
         )
-        ${query.type && query.type !== 'all' ? 'AND r.resource_type = ?' : ''}
+        ${typeClause}
         ${query.provider && query.provider !== 'all' ? 'AND r.provider = ?' : ''}
         ${query.status && query.status !== 'all' ? 'AND r.status = ?' : ''}
         LIMIT ? OFFSET ?
       `)
 
       const params: unknown[] = [query.q]
-      if (query.type && query.type !== 'all') params.push(query.type)
+      if (selectedTypes.length > 0) params.push(...selectedTypes)
       if (query.provider && query.provider !== 'all') params.push(query.provider)
       if (query.status && query.status !== 'all') params.push(query.status)
       params.push(limit, offset)
@@ -127,8 +135,11 @@ export async function executeSearch(query: SearchQuery, event?: H3Event): Promis
     const matchTerms = keywords.every(kw => titleLower.includes(kw))
     if (!matchTerms) return false
 
-    // Type filter
-    if (query.type && query.type !== 'all' && r.resourceType !== query.type) return false
+    // Type filter (supports single or multi-select)
+    const selectedTypes = query.type && query.type !== 'all'
+      ? String(query.type).split(',').map(t => t.trim()).filter(Boolean)
+      : []
+    if (selectedTypes.length > 0 && !selectedTypes.includes(r.resourceType)) return false
 
     // Provider filter
     if (query.provider && query.provider !== 'all' && r.provider !== query.provider) return false

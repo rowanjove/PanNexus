@@ -1,12 +1,42 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search, ArrowRight, ShieldCheck, Database, Zap } from 'lucide-vue-next'
+import { Search, ArrowRight, ShieldCheck, Database, Zap, Check } from 'lucide-vue-next'
 import type { ResourceType } from '~/shared/types'
 
 const router = useRouter()
 const searchKeyword = ref('')
-const selectedType = ref<ResourceType | 'all'>('all')
+
+const typeOptions: { label: string; value: ResourceType }[] = [
+  { label: '网盘分享', value: 'cloud_drive' },
+  { label: '磁力链接', value: 'magnet' },
+  { label: '种子文件', value: 'torrent' },
+  { label: '软件/资料', value: 'other' }
+]
+
+// Multi-select state: defaults to all selected
+const selectedTypes = ref<ResourceType[]>(['cloud_drive', 'magnet', 'torrent', 'other'])
+
+const isAllSelected = computed(() => {
+  return selectedTypes.value.length === typeOptions.length
+})
+
+function toggleAllTypes() {
+  if (isAllSelected.value) {
+    selectedTypes.value = []
+  } else {
+    selectedTypes.value = typeOptions.map(t => t.value)
+  }
+}
+
+function toggleType(type: ResourceType) {
+  const index = selectedTypes.value.indexOf(type)
+  if (index >= 0) {
+    selectedTypes.value.splice(index, 1)
+  } else {
+    selectedTypes.value.push(type)
+  }
+}
 
 const trendingKeywords = ref([
   '流浪地球2',
@@ -22,7 +52,7 @@ const trendingKeywords = ref([
 const stats = ref({
   totalResources: 18420,
   totalCanonical: 4920,
-  healthySources: 8
+  healthySources: 11
 })
 
 onMounted(async () => {
@@ -49,22 +79,18 @@ function handleSearch(keyword = searchKeyword.value) {
   const q = keyword.trim()
   if (!q) return
 
+  const typeParam = isAllSelected.value || selectedTypes.value.length === 0
+    ? undefined
+    : selectedTypes.value.join(',')
+
   router.push({
     path: '/search',
     query: {
       q,
-      ...(selectedType.value !== 'all' ? { type: selectedType.value } : {})
+      ...(typeParam ? { type: typeParam } : {})
     }
   })
 }
-
-const typeTabs: { label: string; value: ResourceType | 'all' }[] = [
-  { label: '全部资源', value: 'all' },
-  { label: '网盘分享', value: 'cloud_drive' },
-  { label: '磁力链接', value: 'magnet' },
-  { label: '种子文件', value: 'torrent' },
-  { label: '常用软件', value: 'other' }
-]
 </script>
 
 <template>
@@ -84,13 +110,13 @@ const typeTabs: { label: string; value: ResourceType | 'all' }[] = [
       </p>
     </div>
 
-    <!-- Search Input Box (High Ergonomics, Anti-AI Vibe) -->
+    <!-- Search Input Box & Optimized Button -->
     <div class="w-full max-w-2xl mx-auto">
       <form
         @submit.prevent="handleSearch()"
-        class="relative flex items-center rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#111114] shadow-sm transition-all focus-within:border-zinc-900 dark:focus-within:border-zinc-100 focus-within:ring-1 focus-within:ring-zinc-900 dark:focus-within:ring-zinc-100"
+        class="relative flex items-center rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#111114] shadow-sm transition-all focus-within:border-zinc-900 dark:focus-within:border-zinc-100 focus-within:ring-1 focus-within:ring-zinc-900 dark:focus-within:ring-zinc-100 p-1"
       >
-        <div class="pl-4 pr-2 text-zinc-400">
+        <div class="pl-3 pr-2 text-zinc-400">
           <Search class="w-5 h-5" />
         </div>
 
@@ -100,13 +126,13 @@ const typeTabs: { label: string; value: ResourceType | 'all' }[] = [
           type="text"
           autocomplete="off"
           placeholder="搜索影视、软件、资料、磁力（按 / 快速聚焦）..."
-          class="w-full py-3.5 bg-transparent text-sm sm:text-base text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none"
+          class="w-full py-2.5 bg-transparent text-sm sm:text-base text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none"
         />
 
-        <div class="pr-2 flex items-center gap-2">
+        <div class="pr-1 flex items-center">
           <button
             type="submit"
-            class="px-4 py-2 rounded-md bg-zinc-900 hover:bg-zinc-800 text-white dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 text-xs font-mono font-medium transition-colors flex items-center gap-1 shrink-0"
+            class="px-5 py-2.5 rounded-md bg-zinc-900 hover:bg-zinc-800 text-white dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 text-xs font-mono font-semibold transition-colors flex items-center gap-1.5 shrink-0 shadow-sm"
           >
             <span>检索</span>
             <ArrowRight class="w-3.5 h-3.5" />
@@ -114,20 +140,32 @@ const typeTabs: { label: string; value: ResourceType | 'all' }[] = [
         </div>
       </form>
 
-      <!-- Category Filter Tabs -->
-      <div class="flex items-center justify-center gap-1.5 sm:gap-2 mt-4 overflow-x-auto py-1">
+      <!-- Multi-select Filter Checkbox Buttons -->
+      <div class="flex flex-wrap items-center justify-center gap-2 mt-4 text-xs font-mono">
         <button
-          v-for="tab in typeTabs"
-          :key="tab.value"
-          @click="selectedType = tab.value"
-          class="px-3 py-1 rounded-md text-xs font-mono transition-colors shrink-0"
-          :class="[
-            selectedType === tab.value
-              ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 font-semibold'
-              : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/60'
-          ]"
+          type="button"
+          @click="toggleAllTypes"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-mono transition-all"
+          :class="isAllSelected ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 border-zinc-900 dark:border-zinc-100 font-semibold' : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:border-zinc-400'"
         >
-          {{ tab.label }}
+          <span class="w-3.5 h-3.5 rounded-sm border flex items-center justify-center text-[10px]" :class="isAllSelected ? 'border-transparent bg-white/20 dark:bg-black/20 text-white dark:text-zinc-900' : 'border-zinc-400 dark:border-zinc-600'">
+            <Check v-if="isAllSelected" class="w-3 h-3 stroke-[3]" />
+          </span>
+          <span>全部类型</span>
+        </button>
+
+        <button
+          v-for="item in typeOptions"
+          :key="item.value"
+          type="button"
+          @click="toggleType(item.value)"
+          class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-mono transition-all"
+          :class="selectedTypes.includes(item.value) ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 border-zinc-900 dark:border-zinc-100 font-semibold' : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:border-zinc-400'"
+        >
+          <span class="w-3.5 h-3.5 rounded-sm border flex items-center justify-center text-[10px]" :class="selectedTypes.includes(item.value) ? 'border-transparent bg-white/20 dark:bg-black/20 text-white dark:text-zinc-900' : 'border-zinc-400 dark:border-zinc-600'">
+            <Check v-if="selectedTypes.includes(item.value)" class="w-3 h-3 stroke-[3]" />
+          </span>
+          <span>{{ item.label }}</span>
         </button>
       </div>
 
@@ -152,7 +190,7 @@ const typeTabs: { label: string; value: ResourceType | 'all' }[] = [
         </div>
         <div class="flex items-center gap-2 p-3 rounded border border-zinc-200/60 dark:border-zinc-800/60 bg-white/60 dark:bg-[#111114]/60">
           <ShieldCheck class="w-4 h-4 text-zinc-400 shrink-0" />
-          <span>8 节点独立熔断与健康管理</span>
+          <span>11 节点独立熔断与健康管理</span>
         </div>
         <div class="flex items-center gap-2 p-3 rounded border border-zinc-200/60 dark:border-zinc-800/60 bg-white/60 dark:bg-[#111114]/60">
           <Zap class="w-4 h-4 text-zinc-400 shrink-0" />

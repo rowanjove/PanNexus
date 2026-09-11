@@ -39,20 +39,6 @@ function focusSearch() {
           >
             聚合搜索
           </NuxtLink>
-          <NuxtLink
-            to="/sources"
-            class="hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
-            active-class="text-zinc-900 dark:text-zinc-100 font-semibold"
-          >
-            数据源大盘
-          </NuxtLink>
-          <NuxtLink
-            to="/admin"
-            class="hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
-            active-class="text-zinc-900 dark:text-zinc-100 font-semibold"
-          >
-            管理控制台
-          </NuxtLink>
         </nav>
       </div>
 
