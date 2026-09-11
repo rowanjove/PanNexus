@@ -1,0 +1,31 @@
+{
+  "name": "metaseek",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "test": "vitest run",
+    "d1:init": "wrangler d1 execute metaseek-db --local --file=./database/schema.sql",
+    "d1:seed": "tsx ./database/seed.ts"
+  },
+  "dependencies": {
+    "lucide-vue-next": "^0.475.0",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250224.0",
+    "@nuxtjs/tailwindcss": "^6.13.1",
+    "@types/node": "^22.13.4",
+    "nuxt": "^3.15.4",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.6",
+    "wrangler": "^3.109.2"
+  }
+}

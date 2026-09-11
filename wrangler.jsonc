@@ -1,0 +1,39 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "metaseek",
+  "main": "./.output/server/index.mjs",
+  "compatibility_date": "2025-02-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "metaseek-db",
+      "database_id": "metaseek-local-id",
+      "migrations_dir": "./database/migrations"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "METASEEK_KV",
+      "id": "metaseek-kv-id"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "CRAWL_QUEUE",
+        "queue": "metaseek-crawl-queue"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "metaseek-crawl-queue",
+        "max_batch_size": 10,
+        "max_batch_timeout": 30
+      }
+    ]
+  },
+  "triggers": {
+    "crons": ["*/30 * * * *"]
+  }
+}
