@@ -1,41 +1,86 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useToast } from '~/composables/useToast'
-import { Shield, Play, RotateCcw, AlertTriangle, Search, Ban, CheckCircle2 } from 'lucide-vue-next'
+import { Shield, Play, RotateCcw, AlertTriangle, Search, Ban, CheckCircle2, Trash2 } from 'lucide-vue-next'
 
-const { success } = useToast()
+const { success, error } = useToast()
 
-const zeroResultQueries = ref([
-  { query: '三体 4K 60帧 未删减', count: 42, lastSearched: '10分钟前' },
-  { query: 'GTA6 PC 破解版', count: 38, lastSearched: '35分钟前' },
-  { query: '现代操作系统 第五版 中文 pdf', count: 21, lastSearched: '1小时前' },
-  { query: 'Final Cut Pro 11 破解', count: 18, lastSearched: '2小时前' }
-])
-
-const blacklist = ref([
-  { type: 'domain', value: 'spam-ad-site.com', addedAt: '2025-01-10' },
-  { type: 'infohash', value: '0000000000000000000000000000000000000000', addedAt: '2025-01-12' }
-])
-
+const zeroResultQueries = ref<any[]>([])
+const blacklist = ref<any[]>([])
 const newBlacklistVal = ref('')
+const newBlacklistType = ref('keyword')
 
-function runSourceCrawl(sourceKey: string) {
-  success(`已为 [${sourceKey}] 下发异步采集任务至 Cloudflare Queues`)
+async function loadData() {
+  try {
+    const res = await $fetch<any>('/api/v1/admin/actions', {
+      method: 'POST',
+      body: { action: 'get_overview' }
+    })
+    if (res?.success) {
+      zeroResultQueries.value = res.zeroResults || []
+      blacklist.value = res.blockedItems || []
+    }
+  } catch (err: any) {
+    error('加载管理数据失败')
+  }
 }
 
-function resetCircuit(sourceKey: string) {
-  success(`已重置 [${sourceKey}] 熔断状态为 CLOSED`)
+onMounted(() => {
+  loadData()
+})
+
+async function runSourceCrawl(sourceKey: string) {
+  try {
+    const res = await $fetch<any>('/api/v1/admin/actions', {
+      method: 'POST',
+      body: { action: 'trigger_crawl', sourceId: sourceKey }
+    })
+    success(`已调度 [${sourceKey}] 采集，本次新增 ${res.inserted || 0} 条索引`)
+  } catch {
+    error(`调度 [${sourceKey}] 采集失败`)
+  }
 }
 
-function addBlacklist() {
-  if (!newBlacklistVal.value.trim()) return
-  blacklist.value.push({
-    type: 'keyword/hash',
-    value: newBlacklistVal.value.trim(),
-    addedAt: '刚刚'
-  })
-  newBlacklistVal.value = ''
-  success('已添加至屏蔽黑名单')
+async function resetCircuit(sourceKey: string) {
+  try {
+    await $fetch<any>('/api/v1/admin/actions', {
+      method: 'POST',
+      body: { action: 'reset_circuit', sourceId: sourceKey }
+    })
+    success(`已重置 [${sourceKey}] 熔断状态为 CLOSED`)
+  } catch {
+    error('重置熔断状态失败')
+  }
+}
+
+async function addBlacklist() {
+  const val = newBlacklistVal.value.trim()
+  if (!val) return
+
+  try {
+    await $fetch<any>('/api/v1/admin/actions', {
+      method: 'POST',
+      body: { action: 'add_blocked', type: newBlacklistType.value, value: val }
+    })
+    success('已成功添加至屏蔽库')
+    newBlacklistVal.value = ''
+    loadData()
+  } catch {
+    error('添加屏蔽失败')
+  }
+}
+
+async function removeBlacklist(id: number) {
+  try {
+    await $fetch<any>('/api/v1/admin/actions', {
+      method: 'POST',
+      body: { action: 'remove_blocked', id }
+    })
+    success('已解除屏蔽')
+    loadData()
+  } catch {
+    error('解除屏蔽失败')
+  }
 }
 </script>
 
@@ -168,8 +213,19 @@ function addBlacklist() {
               {{ b.type }}
             </span>
             <span class="text-zinc-800 dark:text-zinc-200">{{ b.value }}</span>
+            <span v-if="b.reason" class="text-zinc-400 text-[11px]">({{ b.reason }})</span>
           </div>
-          <span class="text-zinc-400 text-[11px]">{{ b.addedAt }}</span>
+          <div class="flex items-center gap-3">
+            <span class="text-zinc-400 text-[11px]">{{ b.created_at ? new Date(b.created_at).toLocaleDateString() : b.addedAt }}</span>
+            <button
+              v-if="b.id"
+              @click="removeBlacklist(b.id)"
+              class="p-1 text-zinc-400 hover:text-rose-500 transition-colors"
+              title="解除屏蔽"
+            >
+              <Trash2 class="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
     </div>

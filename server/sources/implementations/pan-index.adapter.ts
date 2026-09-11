@@ -49,10 +49,54 @@ export class PanIndexAdapter extends BaseSourceAdapter {
     ]
   }
 
-  protected async crawl(_cursor?: string): Promise<CrawlResult> {
-    return {
-      items: [],
-      nextCursor: undefined
+  protected async crawl(cursor?: string): Promise<CrawlResult> {
+    const page = cursor ? parseInt(cursor.replace('page_', ''), 10) : 1
+
+    // Simulated multi-page incremental crawl
+    if (page === 1) {
+      return {
+        items: [
+          {
+            title: '白夜破晓 2024 S01 4K 原画 夸克网盘',
+            url: 'https://pan.quark.cn/s/qk_by_break_dawn_4k',
+            resourceType: 'cloud_drive',
+            provider: 'quark',
+            size: 42 * 1024 * 1024 * 1024,
+            publishedAt: Date.now() - 3600 * 1000 * 3,
+            metadata: { resolution: '2160p', season: 1 }
+          },
+          {
+            title: '黑神话：悟空 官方原声大碟 无损 FLAC 百度网盘',
+            url: 'https://pan.baidu.com/s/1wukong_ost_flac',
+            password: 'wukg',
+            resourceType: 'cloud_drive',
+            provider: 'baidu',
+            size: 1.2 * 1024 * 1024 * 1024,
+            publishedAt: Date.now() - 3600 * 1000 * 6,
+            metadata: { format: 'FLAC' }
+          }
+        ],
+        nextCursor: 'page_2'
+      }
     }
+
+    if (page === 2) {
+      return {
+        items: [
+          {
+            title: '基地 第二季 Foundation S02 2160p 阿里网盘',
+            url: 'https://www.alipan.com/s/ali_foundation_s2',
+            resourceType: 'cloud_drive',
+            provider: 'aliyun',
+            size: 38 * 1024 * 1024 * 1024,
+            publishedAt: Date.now() - 3600 * 1000 * 14,
+            metadata: { resolution: '2160p', season: 2 }
+          }
+        ],
+        nextCursor: undefined // Finished crawl cycle
+      }
+    }
+
+    return { items: [], nextCursor: undefined }
   }
 }
