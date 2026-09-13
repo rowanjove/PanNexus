@@ -1,9 +1,11 @@
 import { BaseSourceAdapter, type CrawlResult } from '../adapter.base'
 import type { RawResource, SearchQuery } from '~/shared/types'
+import { isSafeUrl } from '../../core/security/ssrf'
+import { safeFetch } from '../../core/http/safe-fetch'
 
 export class AlistAdapter extends BaseSourceAdapter {
   readonly id = 'alist_hub'
-  readonly name = 'AList 开放分布式网盘源'
+  readonly name = 'AList 开放目录（需配置 ALIST_BASE_URL）'
   readonly type = 'api' as const
   override readonly priority = 88
   override readonly capabilities = {
@@ -12,56 +14,79 @@ export class AlistAdapter extends BaseSourceAdapter {
     healthCheck: true
   }
 
-  protected async search(query: SearchQuery, _signal: AbortSignal): Promise<RawResource[]> {
-    const q = query.q.trim()
-    if (!q) return []
+  private baseUrl?: string
+  private token?: string
 
-    return [
-      {
-        title: `${q} 典藏合集 4K 60FPS 杜比视界 AList挂载盘`,
-        url: `https://pan.example-alist.org/d/public/${encodeURIComponent(q)}_4k_collection`,
-        resourceType: 'cloud_drive',
-        provider: '123pan',
-        size: 52 * 1024 * 1024 * 1024,
-        fileCount: 12,
-        publishedAt: Date.now() - 3600 * 1000 * 5,
-        files: [
-          { filename: `${q}.EP01.4k.dv.mkv`, sizeBytes: 4200 * 1024 * 1024, extension: 'mkv' },
-          { filename: `${q}.EP02.4k.dv.mkv`, sizeBytes: 4300 * 1024 * 1024, extension: 'mkv' }
-        ],
-        metadata: { resolution: '2160p', source: 'AList-V3-Index' }
-      },
-      {
-        title: `${q} 原声音乐与配套资料 官方无损版`,
-        url: `https://pan.example-alist.org/d/media/${encodeURIComponent(q)}_ost_data`,
-        resourceType: 'cloud_drive',
-        provider: 'aliyun',
-        size: 1500 * 1024 * 1024,
-        fileCount: 8,
-        publishedAt: Date.now() - 3600 * 1000 * 24,
-        metadata: { format: 'FLAC' }
-      }
-    ]
+  constructor(baseUrl?: string, token?: string) {
+    super()
+    this.baseUrl = baseUrl
+    this.token = token
   }
 
-  protected async crawl(cursor?: string): Promise<CrawlResult> {
-    const page = cursor ? parseInt(cursor.replace('alist_p', ''), 10) : 1
-    if (page === 1) {
-      return {
-        items: [
-          {
-            title: '肖申克的救赎 The Shawshank Redemption 1994 2160p REMUX AList',
-            url: 'https://pan.example-alist.org/d/movies/shawshank_4k_remux',
-            resourceType: 'cloud_drive',
-            provider: '123pan',
-            size: 68 * 1024 * 1024 * 1024,
-            publishedAt: Date.now() - 3600 * 1000 * 48,
-            metadata: { resolution: '2160p', year: 1994, codec: 'HEVC' }
-          }
-        ],
-        nextCursor: undefined
-      }
+  private resolveConfig() {
+    return {
+      baseUrl: (this.baseUrl || (typeof process !== 'undefined' ? process.env.ALIST_BASE_URL : undefined) || '').replace(/\/$/, ''),
+      token: this.token || (typeof process !== 'undefined' ? process.env.ALIST_TOKEN : undefined)
     }
-    return { items: [], nextCursor: undefined }
+  }
+
+  private mapItem(item: any): RawResource | null {
+    const name = String(item?.name || item?.title || '').trim()
+    if (!name) return null
+    const path = String(item?.path || item?.parent || '')
+    const { baseUrl } = this.resolveConfig()
+    const url = item?.url || `${baseUrl}/d${path ? `${path.startsWith('/') ? path : `/${path}`}` : ''}/${encodeURIComponent(name)}`
+    return {
+      title: name,
+      url,
+      resourceType: 'http',
+      provider: 'unknown',
+      size: Number(item?.size || 0) || undefined,
+      publishedAt: item?.modified ? Date.parse(item.modified) : Date.now(),
+      metadata: { source: 'alist' }
+    }
+  }
+
+  protected async search(query: SearchQuery, signal: AbortSignal): Promise<RawResource[]> {
+    const q = query.q.trim()
+    if (!q) return []
+    const { baseUrl, token } = this.resolveConfig()
+    if (!baseUrl || !isSafeUrl(baseUrl).safe) return []
+
+    const res = await safeFetch(`${baseUrl}/api/fs/search`, {
+      method: 'POST',
+      signal,
+      timeoutMs: 8000,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: token } : {})
+      },
+      body: JSON.stringify({ keywords: q, parent: '/', page: 1, per_page: 20, scope: 0 })
+    })
+    if (!res.ok) return []
+    const data = await res.json() as any
+    const list = data?.data?.content || data?.data?.list || []
+    return (Array.isArray(list) ? list : []).map((item: any) => this.mapItem(item)).filter(Boolean) as RawResource[]
+  }
+
+  protected async crawl(_cursor?: string): Promise<CrawlResult> {
+    const { baseUrl, token } = this.resolveConfig()
+    if (!baseUrl || !isSafeUrl(baseUrl).safe) return { items: [] }
+
+    const res = await safeFetch(`${baseUrl}/api/fs/list`, {
+      method: 'POST',
+      timeoutMs: 8000,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: token } : {})
+      },
+      body: JSON.stringify({ path: '/', page: 1, per_page: 30 })
+    })
+    if (!res.ok) return { items: [] }
+    const data = await res.json() as any
+    const list = data?.data?.content || []
+    return {
+      items: (Array.isArray(list) ? list : []).map((item: any) => this.mapItem(item)).filter(Boolean) as RawResource[]
+    }
   }
 }

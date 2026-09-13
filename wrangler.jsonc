@@ -1,9 +1,9 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "metaseek",
-  "main": "./.output/server/index.mjs",
   "compatibility_date": "2025-02-01",
   "compatibility_flags": ["nodejs_compat"],
+  "pages_build_output_dir": "./dist",
   "d1_databases": [
     {
       "binding": "DB",
@@ -24,16 +24,6 @@
         "binding": "CRAWL_QUEUE",
         "queue": "metaseek-crawl-queue"
       }
-    ],
-    "consumers": [
-      {
-        "queue": "metaseek-crawl-queue",
-        "max_batch_size": 10,
-        "max_batch_timeout": 30
-      }
     ]
-  },
-  "triggers": {
-    "crons": ["*/30 * * * *"]
   }
 }

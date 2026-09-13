@@ -1,54 +1,57 @@
 import { BaseSourceAdapter, type CrawlResult } from '../adapter.base'
 import type { RawResource, SearchQuery } from '~/shared/types'
+import { extractPanResourcesFromText } from '../../core/dedup/pan-extractor'
+import { safeFetch } from '../../core/http/safe-fetch'
 
 export class Pan115ArchiveAdapter extends BaseSourceAdapter {
   readonly id = '115_vip_archive'
-  readonly name = '115 蓝光与特种离线库'
+  readonly name = '115 蓝光与原盘专区'
   readonly type = 'api' as const
   override readonly priority = 85
   override readonly capabilities = {
-    crawl: true,
+    crawl: false,
     search: true,
     healthCheck: true
   }
 
-  protected async search(query: SearchQuery, _signal: AbortSignal): Promise<RawResource[]> {
+  protected async search(query: SearchQuery, signal: AbortSignal): Promise<RawResource[]> {
     const q = query.q.trim()
     if (!q) return []
 
-    return [
-      {
-        title: `${q} BDMV 原盘 ISO 典藏压制 115秒传提取码`,
-        url: `https://115.com/s/115_${encodeURIComponent(q.toLowerCase())}_bdmv`,
-        password: 'vip8',
-        resourceType: 'cloud_drive',
+    try {
+      const targetUrl = `https://115pan.com/api/search?q=${encodeURIComponent(q)}`
+      const res = await safeFetch(targetUrl, {
+        signal,
+        timeoutMs: 6000,
+        headers: {
+          Referer: 'https://115pan.com/',
+          Accept: 'application/json, text/plain, text/html, */*'
+        }
+      })
+
+      if (!res.ok) return []
+
+      const text = await res.text().catch(() => '')
+      if (!text) return []
+
+      const extracted = extractPanResourcesFromText(text)
+      const pan115Only = extracted.filter(r => r.provider === '115')
+
+      return (pan115Only.length > 0 ? pan115Only : extracted).map(item => ({
+        title: item.title,
+        url: item.url,
         provider: '115',
-        size: 62 * 1024 * 1024 * 1024,
-        fileCount: 1,
-        publishedAt: Date.now() - 3600 * 1000 * 12,
-        files: [
-          { filename: `${q}.2024.BDMV.iso`, sizeBytes: 62 * 1024 * 1024 * 1024, extension: 'iso' }
-        ],
-        metadata: { resolution: '2160p', edition: 'BDMV' }
-      }
-    ]
+        resourceType: item.resourceType || 'movie',
+        password: item.password,
+        publishedAt: Date.now(),
+        metadata: { source: '115_archive' }
+      }))
+    } catch {
+      return []
+    }
   }
 
   protected async crawl(_cursor?: string): Promise<CrawlResult> {
-    return {
-      items: [
-        {
-          title: '指环王三部曲导剪版 The Lord of the Rings 4K REMUX 115网盘',
-          url: 'https://115.com/s/115_lotr_extended_4k',
-          password: 'ring',
-          resourceType: 'cloud_drive',
-          provider: '115',
-          size: 210 * 1024 * 1024 * 1024,
-          publishedAt: Date.now() - 3600 * 1000 * 120,
-          metadata: { resolution: '2160p', edition: 'Extended' }
-        }
-      ],
-      nextCursor: undefined
-    }
+    return { items: [] }
   }
 }

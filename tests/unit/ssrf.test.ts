@@ -24,6 +24,9 @@ describe('SSRF Defense Engine', () => {
 
   it('blocks cloud metadata endpoint 169.254.169.254', () => {
     expect(isSafeUrl('http://169.254.169.254/latest/meta-data/').safe).toBe(false)
+    expect(isSafeUrl('http://[::ffff:127.0.0.1]/').safe).toBe(false)
+    expect(isSafeUrl('http://[::ffff:169.254.169.254]/').safe).toBe(false)
+    expect(isSafeUrl('http://example.nip.io/').safe).toBe(false)
   })
 
   it('blocks non-HTTP protocols', () => {

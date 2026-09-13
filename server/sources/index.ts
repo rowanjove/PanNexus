@@ -11,12 +11,18 @@ import { NyaaAdapter } from './implementations/nyaa.adapter'
 import { EbookAdapter } from './implementations/ebook.adapter'
 import { SoftwareAdapter } from './implementations/software.adapter'
 import { TorznabAdapter } from './implementations/torznab.adapter'
-import { TelegramGenericAdapter } from './implementations/tg-generic.adapter'
+import { TelegramGenericAdapter, COMMUNITY_TG_CHANNELS } from './implementations/tg-generic.adapter'
+import { PanSearchAdapter } from './implementations/pansearch.adapter'
+import { AcademicTorrentsAdapter } from './implementations/academic-torrents.adapter'
+import { QuPanSouAdapter } from './implementations/qupansou.adapter'
 
 export function initializeSources() {
   if (sourceRegistry.getAll().length === 0) {
     sourceRegistry.register(new MagnetIndexAdapter())
     sourceRegistry.register(new TorznabAdapter())
+    sourceRegistry.register(new AcademicTorrentsAdapter())
+    sourceRegistry.register(new PanSearchAdapter())
+    sourceRegistry.register(new QuPanSouAdapter())
     sourceRegistry.register(new PanIndexAdapter())
     sourceRegistry.register(new AlistAdapter())
     sourceRegistry.register(new QuarkShareAdapter())
@@ -26,19 +32,12 @@ export function initializeSources() {
     sourceRegistry.register(new NyaaAdapter())
     sourceRegistry.register(new EbookAdapter())
     sourceRegistry.register(new SoftwareAdapter())
-    sourceRegistry.register(new TelegramGenericAdapter({
-      channelUsername: 'Aliyun_4K_Movies',
-      channelName: '阿里 4K 影视频道',
-      defaultCategory: 'movie',
-      priority: 85
-    }))
-    sourceRegistry.register(new TelegramGenericAdapter({
-      channelUsername: 'Quark_Movies',
-      channelName: '夸克影视直链频道',
-      defaultCategory: 'movie',
-      priority: 84
-    }))
     sourceRegistry.register(new TgChannelAdapter())
+
+    // Register all high-reputation Telegram channel matrix nodes
+    for (const channel of COMMUNITY_TG_CHANNELS) {
+      sourceRegistry.register(new TelegramGenericAdapter(channel))
+    }
   }
   return sourceRegistry
 }

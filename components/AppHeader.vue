@@ -22,10 +22,10 @@ function focusSearch() {
       <div class="flex items-center gap-6">
         <NuxtLink to="/" class="flex items-center gap-2 group">
           <div class="w-6 h-6 rounded bg-zinc-900 dark:bg-zinc-100 flex items-center justify-center text-white dark:text-zinc-900 font-mono text-xs font-bold tracking-wider">
-            M
+            P
           </div>
           <div class="flex items-baseline gap-1.5">
-            <span class="font-semibold text-sm tracking-tight text-zinc-900 dark:text-zinc-100">MetaSeek</span>
+            <span class="font-semibold text-sm tracking-tight text-zinc-900 dark:text-zinc-100">PanNexus</span>
             <span class="text-[11px] font-mono text-zinc-400 dark:text-zinc-500 hidden sm:inline">Federated Index</span>
           </div>
         </NuxtLink>

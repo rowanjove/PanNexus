@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 chcp 65001 >nul
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
@@ -95,9 +95,11 @@ echo ---------------------------------------------------------------------
 where pnpm >nul 2>nul
 if !errorlevel! equ 0 (
   call pnpm d1:init
+  call pnpm d1:migrate
   call pnpm d1:seed
 ) else (
   call npx pnpm d1:init
+  call npx pnpm d1:migrate
   call npx pnpm d1:seed
 )
 pause

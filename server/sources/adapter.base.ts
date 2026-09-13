@@ -75,9 +75,9 @@ export abstract class BaseSourceAdapter {
       const result = await this.crawl(cursor)
       this.circuitBreaker.recordSuccess(Date.now() - start)
       return result
-    } catch {
+    } catch (err) {
       this.circuitBreaker.recordFailure()
-      return { items: [] }
+      throw err
     }
   }
 

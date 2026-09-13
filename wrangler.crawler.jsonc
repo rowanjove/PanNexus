@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "metaseek-crawler",
+  "main": "server/cloudflare/worker.ts",
+  "compatibility_date": "2025-02-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // Production: set APP_URL to the Pages origin and `wrangler secret put METASEEK_CRON_SECRET`
+  "vars": {
+    "APP_URL": "http://127.0.0.1:3000"
+  },
+  "triggers": {
+    "crons": ["*/30 * * * *"]
+  },
+  "queues": {
+    "producers": [
+      {
+        "binding": "CRAWL_QUEUE",
+        "queue": "metaseek-crawl-queue"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "metaseek-crawl-queue",
+        "max_batch_size": 5,
+        "max_batch_timeout": 30,
+        "max_retries": 3
+      }
+    ]
+  }
+}

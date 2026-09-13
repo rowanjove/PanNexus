@@ -27,9 +27,9 @@ export default defineNuxtConfig({
 
   app: {
     head: {
-      title: 'MetaSeek · 联邦资源索引与聚合搜索',
+      title: 'PanNexus (盘纽) · 联邦资源索引与聚合搜索',
       meta: [
-        { name: 'description', content: '基于 Cloudflare 的现代化联邦资源聚合搜索与结构化索引系统' },
+        { name: 'description', content: '基于 Cloudflare Pages + D1 的现代化联邦多网盘与磁力资源聚合搜索与结构化索引系统' },
         { name: 'viewport', content: 'width=device-width, initial-scale=1' }
       ],
       link: [

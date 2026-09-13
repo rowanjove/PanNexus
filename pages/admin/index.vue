@@ -21,15 +21,25 @@ import {
 const route = useRoute()
 const { success, error } = useToast()
 
-const activeTab = ref<'sources' | 'analytics' | 'blacklist'>((route.query.tab as any) || 'sources')
+const isAuthed = ref(false)
+const authChecking = ref(true)
+const loginToken = ref('')
+const loginError = ref('')
+const isLoggingIn = ref(false)
+
+const activeTab = ref<'sources' | 'analytics' | 'blacklist' | 'deadletter'>((route.query.tab as any) || 'sources')
+const failedJobs = ref<any[]>([])
 
 // Source Data
-const sources = ref<Source[]>([])
+type AdminSource = Source & { liveSearch?: boolean; liveCrawl?: boolean; lastCrawlAt?: number | null }
+const sources = ref<AdminSource[]>([])
 const isSourcesLoading = ref(false)
 
 // Admin Overview Data
 const zeroResultQueries = ref<any[]>([])
 const blacklist = ref<any[]>([])
+const hotKeywords = ref<string[]>([])
+const isCrawlingTrending = ref(false)
 const newBlacklistVal = ref('')
 const newBlacklistType = ref('keyword')
 
@@ -54,15 +64,77 @@ async function loadAdminData() {
     if (res?.success) {
       zeroResultQueries.value = res.zeroResults || []
       blacklist.value = res.blockedItems || []
+      failedJobs.value = res.failedJobs || []
+      hotKeywords.value = res.hotKeywords || []
     }
   } catch {
     error('加载运营数据失败')
   }
 }
 
+async function crawlTrending() {
+  isCrawlingTrending.value = true
+  try {
+    const res = await $fetch<any>('/api/v1/admin/actions', {
+      method: 'POST',
+      body: { action: 'crawl_trending' }
+    })
+    if (res?.success) {
+      success(`热门影视同步完成！新增与更新 ${res.totalIndexed || 0} 条索引`)
+      fetchSources()
+    } else {
+      error('同步热门影视失败')
+    }
+  } catch {
+    error('调度热门影视同步请求异常')
+  } finally {
+    isCrawlingTrending.value = false
+  }
+}
+
+async function checkAuth() {
+  authChecking.value = true
+  try {
+    await $fetch('/api/v1/admin/actions', {
+      method: 'POST',
+      body: { action: 'get_overview' }
+    })
+    isAuthed.value = true
+    await Promise.all([fetchSources(), loadAdminData()])
+  } catch {
+    isAuthed.value = false
+  } finally {
+    authChecking.value = false
+  }
+}
+
+async function login() {
+  loginError.value = ''
+  isLoggingIn.value = true
+  try {
+    await $fetch('/api/v1/admin/login', {
+      method: 'POST',
+      body: { token: loginToken.value.trim() }
+    })
+    loginToken.value = ''
+    isAuthed.value = true
+    await Promise.all([fetchSources(), loadAdminData()])
+    success('已进入管理控制台')
+  } catch {
+    loginError.value = '令牌不正确'
+    error('登录失败')
+  } finally {
+    isLoggingIn.value = false
+  }
+}
+
+async function logout() {
+  await $fetch('/api/v1/admin/logout', { method: 'POST' })
+  isAuthed.value = false
+}
+
 onMounted(() => {
-  fetchSources()
-  loadAdminData()
+  checkAuth()
 })
 
 const healthyCount = computed(() => sources.value.filter(s => s.circuitState === 'closed').length)
@@ -126,10 +198,82 @@ async function removeBlacklist(id: number) {
     error('解除屏蔽失败')
   }
 }
+
+async function retryFailedJob(id: number) {
+  try {
+    const res = await $fetch<any>('/api/v1/admin/actions', {
+      method: 'POST',
+      body: { action: 'retry_failed_job', id }
+    })
+    if (res?.success) {
+      success('死信任务已重试执行完毕')
+      loadAdminData()
+      fetchSources()
+    } else {
+      error(res?.error || '重试执行失败')
+    }
+  } catch {
+    error('重试死信任务请求异常')
+  }
+}
+
+async function deleteFailedJob(id: number) {
+  try {
+    await $fetch<any>('/api/v1/admin/actions', {
+      method: 'POST',
+      body: { action: 'delete_failed_job', id }
+    })
+    success('已移除该条死信记录')
+    loadAdminData()
+  } catch {
+    error('移除死信记录失败')
+  }
+}
+
+async function clearAllFailedJobs() {
+  try {
+    await $fetch<any>('/api/v1/admin/actions', {
+      method: 'POST',
+      body: { action: 'clear_failed_jobs' }
+    })
+    success('已清空全部死信任务')
+    loadAdminData()
+  } catch {
+    error('清空死信任务失败')
+  }
+}
 </script>
 
 <template>
-  <div class="space-y-6 font-mono text-xs">
+  <div v-if="authChecking" class="py-16 text-center text-sm text-zinc-500 font-mono">
+    正在校验管理会话...
+  </div>
+
+  <form
+    v-else-if="!isAuthed"
+    class="max-w-md mx-auto mt-12 p-6 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#111114] space-y-4"
+    @submit.prevent="login"
+  >
+    <h1 class="text-lg font-semibold text-zinc-900 dark:text-zinc-100">管理控制台登录</h1>
+    <p class="text-xs text-zinc-500">使用环境变量 METASEEK_ADMIN_TOKEN。本地开发可在 .env 中设置该值。</p>
+    <input
+      v-model="loginToken"
+      type="password"
+      autocomplete="current-password"
+      class="w-full px-3 py-2 rounded border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-sm"
+      placeholder="Admin token"
+    />
+    <p v-if="loginError" class="text-xs text-rose-500">{{ loginError }}</p>
+    <button
+      type="submit"
+      :disabled="isLoggingIn || !loginToken.trim()"
+      class="w-full py-2 rounded bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 text-sm disabled:opacity-50"
+    >
+      {{ isLoggingIn ? '登录中...' : '登录' }}
+    </button>
+  </form>
+
+  <div v-else class="space-y-6 font-mono text-xs">
     <!-- Header -->
     <div class="flex items-center justify-between pb-4 border-b border-zinc-200 dark:border-zinc-800">
       <div>
@@ -146,6 +290,13 @@ async function removeBlacklist(id: number) {
         <span class="px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
           Admin Session: Active
         </span>
+        <button
+          type="button"
+          class="px-2 py-1 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300"
+          @click="logout"
+        >
+          退出
+        </button>
       </div>
     </div>
 
@@ -189,6 +340,19 @@ async function removeBlacklist(id: number) {
         <Ban class="w-3.5 h-3.5" />
         <span>合规黑名单 ({{ blacklist.length }})</span>
       </button>
+
+      <button
+        @click="activeTab = 'deadletter'"
+        class="px-3 py-1.5 rounded-md font-mono transition-colors flex items-center gap-1.5"
+        :class="[
+          activeTab === 'deadletter'
+            ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 font-semibold'
+            : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800/60'
+        ]"
+      >
+        <ShieldAlert class="w-3.5 h-3.5 text-amber-500" />
+        <span>死信队列 ({{ failedJobs.length }})</span>
+      </button>
     </div>
 
     <!-- TAB 1: 数据源大盘 -->
@@ -213,6 +377,34 @@ async function removeBlacklist(id: number) {
         </div>
       </div>
 
+      <!-- Hot Trending Movies Seed Sync Banner -->
+      <div class="p-3.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#111114] space-y-2">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <Zap class="w-4 h-4 text-emerald-500" />
+            <span class="text-zinc-800 dark:text-zinc-200 font-semibold">全网影视热榜种子驱动 (Trending-as-Seeds)</span>
+            <span class="text-zinc-400 text-[11px]">从豆瓣实时热播榜自动发现片名，触发全网爬取沉淀索引</span>
+          </div>
+          <button
+            @click="crawlTrending"
+            :disabled="isCrawlingTrending"
+            class="px-2.5 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50 text-xs flex items-center gap-1.5 transition-colors"
+          >
+            <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': isCrawlingTrending }" />
+            <span>{{ isCrawlingTrending ? '正在全网检索建库...' : '同步热搜并建索引' }}</span>
+          </button>
+        </div>
+        <div class="flex flex-wrap gap-1.5 pt-1">
+          <span
+            v-for="kw in hotKeywords"
+            :key="kw"
+            class="px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800/80 text-zinc-700 dark:text-zinc-300 text-[11px] font-sans"
+          >
+            {{ kw }}
+          </span>
+        </div>
+      </div>
+
       <!-- Quick Global Circuit Reset -->
       <div class="p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#111114] flex items-center justify-between">
         <div class="flex items-center gap-2">
@@ -227,6 +419,12 @@ async function removeBlacklist(id: number) {
           >
             <RefreshCw class="w-3 h-3" :class="{ 'animate-spin': isSourcesLoading }" />
             <span>刷新</span>
+          </button>
+          <button
+            @click="runSourceCrawl('all')"
+            class="px-2.5 py-1 rounded border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+          >
+            全量采集
           </button>
           <button
             @click="resetCircuit('all')"
@@ -261,6 +459,10 @@ async function removeBlacklist(id: number) {
                 <td class="py-3 px-4">
                   <div class="font-medium text-zinc-900 dark:text-zinc-100 font-sans">{{ s.name }}</div>
                   <div class="text-[11px] text-zinc-400 font-mono">{{ s.sourceKey }}</div>
+                  <div class="mt-1 flex gap-1">
+                    <span v-if="s.liveSearch || s.liveCrawl" class="px-1 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[10px]">真实入口</span>
+                    <span v-else class="px-1 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-400 text-[10px]">未配置</span>
+                  </div>
                 </td>
                 <td class="py-3 px-4 uppercase text-zinc-600 dark:text-zinc-400">
                   <span class="px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700">
@@ -311,7 +513,8 @@ async function removeBlacklist(id: number) {
                   <div class="inline-flex items-center gap-1.5">
                     <button
                       @click="runSourceCrawl(s.sourceKey)"
-                      class="px-2 py-1 rounded bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 hover:opacity-90 transition-opacity text-[11px]"
+                      :disabled="!s.liveCrawl"
+                      class="px-2 py-1 rounded bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 hover:opacity-90 transition-opacity text-[11px] disabled:opacity-40"
                       title="下发爬虫任务"
                     >
                       立即采集
@@ -341,6 +544,14 @@ async function removeBlacklist(id: number) {
             <span>零结果搜索词监控 (Zero Result Queries)</span>
           </h2>
           <span class="text-zinc-400 text-[11px]">高频未命中词将自动记录，指导扩充对应垂直 Source</span>
+        </div>
+
+        <div v-if="failedJobs.length" class="rounded border border-zinc-200 dark:border-zinc-800 p-3 space-y-1">
+          <div class="text-[11px] text-zinc-400">失败任务 / Dead Letter（最近 {{ failedJobs.length }} 条）</div>
+          <div v-for="job in failedJobs" :key="job.id" class="flex justify-between gap-2">
+            <span>{{ job.source_key }}</span>
+            <span class="text-rose-500 truncate">{{ job.error }}</span>
+          </div>
         </div>
 
         <div class="overflow-x-auto">
@@ -433,6 +644,74 @@ async function removeBlacklist(id: number) {
           </div>
           <div v-if="blacklist.length === 0" class="py-6 text-center text-zinc-400">
             黑名单库为空
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 4: 死信队列与调度失败任务 -->
+    <div v-if="activeTab === 'deadletter'" class="space-y-6">
+      <div class="p-4 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#111114] space-y-4">
+        <div class="flex items-center justify-between pb-3 border-b border-zinc-100 dark:border-zinc-800">
+          <div>
+            <h2 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
+              <ShieldAlert class="w-4 h-4 text-amber-500" />
+              <span>死信任务队列 (Dead Letter Queue & Failed Crawl Jobs)</span>
+            </h2>
+            <span class="text-zinc-400 text-[11px]">爬虫与调度重试 3 次均失败的任务沉淀于此，可排查错误并手动重试</span>
+          </div>
+
+          <button
+            v-if="failedJobs.length > 0"
+            @click="clearAllFailedJobs"
+            class="px-2.5 py-1 rounded border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-xs transition-colors"
+          >
+            清空全部死信
+          </button>
+        </div>
+
+        <div class="space-y-2">
+          <div
+            v-for="job in failedJobs"
+            :key="job.id"
+            class="p-3 rounded border border-zinc-200/80 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+          >
+            <div class="space-y-1">
+              <div class="flex items-center gap-2">
+                <span class="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 text-[10px] font-semibold">
+                  Job #{{ job.id }}
+                </span>
+                <span class="font-semibold text-zinc-800 dark:text-zinc-200">{{ job.source_key }}</span>
+                <span class="text-zinc-400 text-[11px]">{{ job.created_at ? new Date(job.created_at).toLocaleString() : '' }}</span>
+              </div>
+              <p class="text-xs text-rose-600 dark:text-rose-400 font-mono">
+                {{ job.error }}
+              </p>
+              <p v-if="job.payload" class="text-[11px] text-zinc-400 font-mono truncate max-w-xl">
+                载荷: {{ job.payload }}
+              </p>
+            </div>
+
+            <div class="flex items-center gap-2 self-end sm:self-center">
+              <button
+                @click="retryFailedJob(job.id)"
+                class="px-2.5 py-1 rounded bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 hover:opacity-90 transition-opacity text-xs flex items-center gap-1"
+              >
+                <RotateCcw class="w-3 h-3" />
+                <span>立即重试</span>
+              </button>
+              <button
+                @click="deleteFailedJob(job.id)"
+                class="p-1 text-zinc-400 hover:text-rose-500 transition-colors"
+                title="删除记录"
+              >
+                <Trash2 class="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          <div v-if="failedJobs.length === 0" class="py-8 text-center text-zinc-400 text-xs">
+            暂无死信任务，所有后台采集与队列任务运行健康
           </div>
         </div>
       </div>

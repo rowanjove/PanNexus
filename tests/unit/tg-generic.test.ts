@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { parseTelegramWebHtml, TelegramGenericAdapter } from '../../server/sources/implementations/tg-generic.adapter'
 
 describe('Telegram Generic Channel Adapter', () => {
@@ -32,9 +32,18 @@ describe('Telegram Generic Channel Adapter', () => {
     expect(adapter.name).toBe('阿里 4K 影视频道')
     expect(adapter.priority).toBe(85)
 
-    const results = await adapter.executeSearch({ q: '星际穿越' })
-    expect(results.length).toBe(1)
-    expect(results[0].metadata?.channel).toBe('Aliyun_4K_Movies')
-    expect(results[0].metadata?.category).toBe('movie')
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(`
+      <div class="tgme_widget_message_text js-message_text">
+        星际穿越 4K IMAX<br/>https://pan.quark.cn/s/qk_interstellar_4k
+      </div>
+    `, { status: 200 })))
+    try {
+      const results = await adapter.executeSearch({ q: '星际穿越' })
+      expect(results.length).toBe(1)
+      expect(results[0].metadata?.channel).toBe('Aliyun_4K_Movies')
+      expect(results[0].metadata?.category).toBe('movie')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

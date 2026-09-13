@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS resources (
 CREATE INDEX IF NOT EXISTS idx_resources_canonical_id ON resources(canonical_id);
 CREATE INDEX IF NOT EXISTS idx_resources_url_hash ON resources(url_hash);
 CREATE INDEX IF NOT EXISTS idx_resources_infohash ON resources(infohash);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_resources_url_hash_unique ON resources(url_hash) WHERE url_hash IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_resources_infohash_unique ON resources(infohash) WHERE infohash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_resources_provider ON resources(provider);
 CREATE INDEX IF NOT EXISTS idx_resources_type ON resources(resource_type);
 CREATE INDEX IF NOT EXISTS idx_resources_status ON resources(status);
@@ -136,3 +138,26 @@ CREATE TRIGGER IF NOT EXISTS resources_au AFTER UPDATE ON resources BEGIN
     INSERT INTO resources_fts(rowid, title, normalized_title, metadata)
     VALUES (new.id, new.title, new.normalized_title, new.metadata);
 END;
+
+-- 7. Content governance
+CREATE TABLE IF NOT EXISTS blocked_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT NOT NULL,
+    value TEXT UNIQUE NOT NULL,
+    reason TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_blocked_items_val ON blocked_items(value);
+CREATE INDEX IF NOT EXISTS idx_blocked_items_type ON blocked_items(type);
+
+-- 8. Failed crawl jobs (dead letter)
+CREATE TABLE IF NOT EXISTS failed_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_key TEXT,
+    error TEXT,
+    payload TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_failed_jobs_created ON failed_jobs(created_at);

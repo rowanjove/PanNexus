@@ -1,6 +1,5 @@
 import { BaseSourceAdapter, type CrawlResult } from '../adapter.base'
 import type { RawResource, SearchQuery } from '~/shared/types'
-import crypto from 'node:crypto'
 
 export interface TorznabItem {
   title: string
@@ -105,25 +104,37 @@ export class TorznabAdapter extends BaseSourceAdapter {
     this.apiKey = apiKey
   }
 
-  protected async search(query: SearchQuery, _signal: AbortSignal): Promise<RawResource[]> {
+  private resolveConfig() {
+    return {
+      apiUrl: this.apiUrl || (typeof process !== 'undefined' ? process.env.TORZNAB_URL : undefined),
+      apiKey: this.apiKey || (typeof process !== 'undefined' ? process.env.TORZNAB_API_KEY : undefined)
+    }
+  }
+
+  protected async search(query: SearchQuery, signal: AbortSignal): Promise<RawResource[]> {
     const q = query.q.trim()
     if (!q) return []
 
-    // If real Torznab API URL is configured, fetch upstream
-    if (this.apiUrl && this.apiKey) {
-      try {
-        const url = `${this.apiUrl}?t=search&q=${encodeURIComponent(q)}&apikey=${this.apiKey}`
-        const res = await fetch(url, { signal: _signal })
-        if (!res.ok) return []
-        const xml = await res.text()
-        const parsedItems = parseTorznabXml(xml)
+    const { apiUrl, apiKey } = this.resolveConfig()
+    if (!apiUrl || !apiKey) return []
 
-        return parsedItems.map(item => ({
+    const { safeFetch } = await import('../../core/http/safe-fetch')
+    const url = `${apiUrl}${apiUrl.includes('?') ? '&' : '?'}t=search&q=${encodeURIComponent(q)}&apikey=${encodeURIComponent(apiKey)}`
+    const res = await safeFetch(url, { signal, timeoutMs: 8000 })
+    if (!res.ok) return []
+    const xml = await res.text()
+    const parsedItems = parseTorznabXml(xml)
+
+    return parsedItems
+      .map(item => {
+        const magnet = item.link?.startsWith('magnet:?') ? item.link : (item.infohash ? `magnet:?xt=urn:btih:${item.infohash}` : item.enclosureUrl)
+        if (!item.title || !magnet) return null
+        return {
           title: item.title,
-          url: item.link || item.enclosureUrl || (item.infohash ? `magnet:?xt=urn:btih:${item.infohash}` : ''),
+          url: magnet,
           infohash: item.infohash,
-          resourceType: 'magnet',
-          provider: 'magnet',
+          resourceType: 'magnet' as const,
+          provider: 'magnet' as const,
           size: item.sizeBytes,
           publishedAt: item.pubDate ? new Date(item.pubDate).getTime() : Date.now(),
           metadata: {
@@ -131,49 +142,37 @@ export class TorznabAdapter extends BaseSourceAdapter {
             peers: item.peers,
             gateway: 'Torznab'
           }
-        }))
-      } catch {
-        return []
-      }
-    }
-
-    // Default simulation for standalone / offline operation
-    const mockHash = crypto.createHash('sha1').update(`torznab_${q}`).digest('hex')
-    return [
-      {
-        title: `${q}.2024.2160p.HDR.DTS-HD.MA.5.1 [Torznab Indexer]`,
-        url: `magnet:?xt=urn:btih:${mockHash}&dn=${encodeURIComponent(q)}`,
-        infohash: mockHash,
-        resourceType: 'magnet',
-        provider: 'magnet',
-        size: 32 * 1024 * 1024 * 1024,
-        publishedAt: Date.now() - 3600 * 1000 * 10,
-        metadata: {
-          seeders: 85,
-          peers: 12,
-          resolution: '2160p',
-          gateway: 'Torznab/Jackett'
         }
-      }
-    ]
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null)
   }
 
   protected async crawl(_cursor?: string): Promise<CrawlResult> {
-    const hash = crypto.createHash('sha1').update('torznab_academic_feed').digest('hex')
-    return {
-      items: [
-        {
-          title: 'DeepSeek-R1-Distill-Qwen-32B GGUF Model Weights Dataset',
-          url: `magnet:?xt=urn:btih:${hash}&dn=DeepSeek-R1-32B`,
-          infohash: hash,
-          resourceType: 'magnet',
-          provider: 'magnet',
-          size: 21 * 1024 * 1024 * 1024,
-          publishedAt: Date.now() - 3600 * 1000 * 30,
-          metadata: { category: 'academic', gateway: 'Torznab' }
+    const { apiUrl, apiKey } = this.resolveConfig()
+    if (!apiUrl || !apiKey) return { items: [] }
+
+    const { safeFetch } = await import('../../core/http/safe-fetch')
+    const url = `${apiUrl}${apiUrl.includes('?') ? '&' : '?'}t=search&q=&apikey=${encodeURIComponent(apiKey)}`
+    const res = await safeFetch(url, { timeoutMs: 8000 })
+    if (!res.ok) return { items: [] }
+    const xml = await res.text()
+    const items = parseTorznabXml(xml)
+      .map(item => {
+        const magnet = item.link?.startsWith('magnet:?') ? item.link : (item.infohash ? `magnet:?xt=urn:btih:${item.infohash}` : item.enclosureUrl)
+        if (!item.title || !magnet) return null
+        return {
+          title: item.title,
+          url: magnet,
+          infohash: item.infohash,
+          resourceType: 'magnet' as const,
+          provider: 'magnet' as const,
+          size: item.sizeBytes,
+          publishedAt: item.pubDate ? Date.parse(item.pubDate) || Date.now() : Date.now(),
+          metadata: { seeders: item.seeders, peers: item.peers, gateway: 'Torznab' }
         }
-      ],
-      nextCursor: undefined
-    }
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null)
+
+    return { items }
   }
 }

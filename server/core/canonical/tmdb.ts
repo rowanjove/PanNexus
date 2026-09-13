@@ -147,11 +147,10 @@ export async function resolveCanonicalMetadata(
             originalTitle: first.original_title || first.original_name,
             category: first.media_type === 'movie' ? 'movie' : 'tv',
             year: first.release_date ? parseInt(first.release_date.slice(0, 4), 10) : undefined,
-            posterUrl: first.poster_path ? `https://image.tmdb.org/t/p/w500${first.poster_path}` : undefined,
+            posterUrl: first.poster_path ? `https://image.tmdb.org/t/p/w200${first.poster_path}` : undefined,
             aliases: []
           }
 
-          // Cache for 7 days in KV if available
           if (cfEnv?.METASEEK_KV) {
             await cfEnv.METASEEK_KV.put(`canonical:${normalized}`, JSON.stringify(entity), { expirationTtl: 86400 * 7 })
           }
@@ -165,6 +164,127 @@ export async function resolveCanonicalMetadata(
     }
   }
 
+  // 5. Query AniList GraphQL for Anime / Manga Canonical recognition
+  const animeEntity = await resolveAniListMetadata(title)
+  if (animeEntity) {
+    if (cfEnv?.METASEEK_KV) {
+      await cfEnv.METASEEK_KV.put(`canonical:${normalized}`, JSON.stringify(animeEntity), { expirationTtl: 86400 * 7 })
+    }
+    memoryCanonicalCache.set(normalized, animeEntity)
+    return animeEntity
+  }
+
+  // 6. Query MusicBrainz REST API for Music / Release Groups
+  const musicEntity = await resolveMusicBrainzMetadata(title)
+  if (musicEntity) {
+    if (cfEnv?.METASEEK_KV) {
+      await cfEnv.METASEEK_KV.put(`canonical:${normalized}`, JSON.stringify(musicEntity), { expirationTtl: 86400 * 7 })
+    }
+    memoryCanonicalCache.set(normalized, musicEntity)
+    return musicEntity
+  }
+
   memoryCanonicalCache.set(normalized, null)
   return null
+}
+
+/**
+ * Resolves Anime canonical metadata using AniList public GraphQL API.
+ */
+export async function resolveAniListMetadata(title: string): Promise<CanonicalMetadata | null> {
+  try {
+    const query = `
+      query ($search: String) {
+        Media (search: $search, type: ANIME) {
+          id
+          title {
+            romaji
+            english
+            native
+          }
+          startDate { year }
+          coverImage { large }
+        }
+      }
+    `
+    const res = await fetch('https://graphql.anilist.co', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({ query, variables: { search: title } })
+    })
+
+    if (!res.ok) return null
+    const json = await res.json() as any
+    const media = json?.data?.Media
+    if (!media) return null
+
+    const standardTitle = media.title?.native || media.title?.romaji || media.title?.english || title
+    const originalTitle = media.title?.english || media.title?.romaji
+    const aliases = [media.title?.romaji, media.title?.english, media.title?.native].filter(Boolean)
+
+    return {
+      canonicalId: `anilist:anime:${media.id}`,
+      standardTitle,
+      originalTitle,
+      category: 'anime',
+      year: media.startDate?.year,
+      posterUrl: media.coverImage?.large,
+      aliases
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Resolves Music canonical metadata using MusicBrainz public REST API.
+ */
+export async function resolveMusicBrainzMetadata(title: string): Promise<CanonicalMetadata | null> {
+  try {
+    const url = `https://musicbrainz.org/ws/2/release-group/?query=${encodeURIComponent(title)}&fmt=json&limit=1`
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'MetaSeek/1.0.0 ( contact@metaseek.internal )',
+        'Accept': 'application/json'
+      }
+    })
+
+    if (!res.ok) return null
+    const json = await res.json() as any
+    const rg = json?.['release-groups']?.[0]
+    if (!rg) return null
+
+    if (rg.score && parseInt(rg.score, 10) < 80) return null
+
+    const rgTitle = String(rg.title || '').trim().toLowerCase()
+    const artist = rg['artist-credit']?.[0]?.name
+    const artistName = String(artist || '').trim().toLowerCase()
+    const lowerQuery = title.trim().toLowerCase()
+
+    // Query must have meaningful overlap with title or artist
+    const matchesTitle = lowerQuery.includes(rgTitle) || rgTitle.includes(lowerQuery)
+    const matchesArtist = artistName && (lowerQuery.includes(artistName) || artistName.includes(lowerQuery))
+    if (!matchesTitle && !matchesArtist) return null
+
+    // Avoid false positive where tiny substring matches an unrelated long query
+    if (rgTitle.length < 4 && lowerQuery.length > rgTitle.length * 3 && !matchesArtist) {
+      return null
+    }
+
+    const year = rg['first-release-date'] ? parseInt(rg['first-release-date'].slice(0, 4), 10) : undefined
+
+    return {
+      canonicalId: `musicbrainz:release-group:${rg.id}`,
+      standardTitle: rg.title,
+      originalTitle: artist ? `${artist} - ${rg.title}` : rg.title,
+      category: 'other',
+      year,
+      aliases: [rg.title]
+    }
+  } catch {
+    return null
+  }
 }

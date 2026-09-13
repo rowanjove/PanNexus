@@ -119,13 +119,17 @@ export function parseTitleMetadata(rawTitle: string): ParsedMetadata {
 
   // Category inference: prioritize distinctive format keywords
   let category: ParsedMetadata['category'] = 'other'
-  if (/\b(v\d+(\.\d+)+|setup|installer|keygen|crack|portable|x64|x86|repack)\b/i.test(rawTitle)) {
+  if (/\b(game|steam|switch|ps5|ps4|xbox|pc\s*game|fitgirl|dodi|full\s*unlocked|免安装|绿色版|汉化版|游戏)\b/i.test(rawTitle)) {
+    category = 'game'
+  } else if (/\b(v\d+(\.\d+)+|setup|installer|keygen|crack|portable|x64|x86)\b/i.test(rawTitle)) {
     category = 'software'
   } else if (/\b(epub|pdf|mobi|azw3)\b/i.test(rawTitle)) {
     category = 'book'
-  } else if (/\b(flac|ape|wav|mp3|320k|lossless)\b/i.test(rawTitle)) {
+  } else if (/\b(flac|ape|wav|mp3|320k|lossless)\b/i.test(rawTitle) && !resolution) {
     category = 'music'
-  } else if (season !== undefined || episode !== undefined) {
+  } else if (/(?:subsplease|erai-raws|动漫国|幻樱|诸神|极影|喵萌|澄空|nc-raws|\banime\b|新番|动漫|动画|剧场版|ova|oad|bdrip)/i.test(rawTitle)) {
+    category = 'anime'
+  } else if (season !== undefined || episode !== undefined || /全\d+集|第\d+集/i.test(rawTitle)) {
     category = 'tv'
   } else if (resolution || edition || year) {
     category = 'movie'

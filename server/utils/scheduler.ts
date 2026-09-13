@@ -1,13 +1,19 @@
 import { initializeSources } from '../sources'
+import { processCrawlJob } from '../queues/crawl-consumer'
+import { evaluateAllSources } from '../core/health/source-evaluator'
 import type { D1DatabaseLike } from './db'
 
 /**
  * Handles periodic Cron triggers dispatched by Cloudflare Workers / Queues.
+ * Enqueues one crawl job per enabled adapter. If no queue binding exists,
+ * jobs run inline (local / Pages without a consumer worker).
  */
-export async function handleCronScheduler(env: any): Promise<{ enqueued: number }> {
+export async function handleCronScheduler(env: any): Promise<{ enqueued: number; processed: number; evaluations?: number }> {
   const registry = initializeSources()
   const crawlAdapters = registry.getCrawlAdapters()
   let enqueued = 0
+  let processed = 0
+  let evaluations = 0
 
   const db: D1DatabaseLike | undefined = env?.DB
   const queue = env?.CRAWL_QUEUE
@@ -19,28 +25,43 @@ export async function handleCronScheduler(env: any): Promise<{ enqueued: number 
         const row = await db.prepare('SELECT enabled FROM sources WHERE source_key = ?')
           .bind(adapter.id)
           .first<{ enabled: number }>()
-        if (row && row.enabled === 0) {
-          isEnabled = false
-        }
-      } catch {}
+        if (row && row.enabled === 0) isEnabled = false
+      } catch {
+        // Source table may be empty on first run
+      }
     }
 
     if (!isEnabled) continue
 
+    const job = {
+      type: 'crawl_source' as const,
+      sourceId: adapter.id,
+      cursor: undefined,
+      attempt: 0
+    }
+
     if (queue) {
       try {
-        await queue.send({
-          type: 'crawl_source',
-          sourceId: adapter.id,
-          cursor: undefined,
-          attempt: 0
-        })
+        await queue.send(job)
         enqueued++
-      } catch {}
+      } catch {
+        await processCrawlJob(job, env)
+        processed++
+      }
     } else {
-      enqueued++
+      await processCrawlJob(job, env)
+      processed++
     }
   }
 
-  return { enqueued }
+  if (db) {
+    try {
+      const evalSummaries = await evaluateAllSources(db)
+      evaluations = evalSummaries.length
+    } catch {
+      // Evaluation is non-blocking to crawl tasks
+    }
+  }
+
+  return { enqueued, processed, evaluations }
 }

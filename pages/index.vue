@@ -7,6 +7,20 @@ import type { ResourceType } from '~/shared/types'
 const router = useRouter()
 const searchKeyword = ref('')
 
+const categoryList = [
+  { label: '全部', value: 'all' },
+  { label: '电影', value: 'movie' },
+  { label: '剧集', value: 'tv' },
+  { label: '动漫', value: 'anime' },
+  { label: '图书', value: 'book' },
+  { label: '游戏', value: 'game' },
+  { label: '音乐', value: 'music' },
+  { label: '软件', value: 'software' },
+  { label: '资料', value: 'document' }
+]
+
+const selectedCategory = ref('all')
+
 const typeOptions: { label: string; value: ResourceType }[] = [
   { label: '网盘分享', value: 'cloud_drive' },
   { label: '磁力链接', value: 'magnet' },
@@ -38,27 +52,15 @@ function toggleType(type: ResourceType) {
   }
 }
 
-const trendingKeywords = ref([
-  '流浪地球2',
-  '奥本海默',
-  '黑神话悟空',
-  '沙丘2',
-  '繁花',
-  'Photoshop 2024',
-  'VSCode 便携版',
-  '星际穿越'
-])
-
 const stats = ref({
-  totalResources: 18420,
-  totalCanonical: 4920,
-  healthySources: 11
+  totalResources: 0,
+  totalCanonical: 0,
+  healthySources: 0
 })
 
 onMounted(async () => {
   try {
     const data = await $fetch<any>('/api/v1/trending')
-    if (data?.trending) trendingKeywords.value = data.trending
     if (data?.stats) stats.value = data.stats
   } catch {
     // Keep defaults
@@ -75,9 +77,9 @@ onMounted(async () => {
   return () => window.removeEventListener('keydown', handleKeyDown)
 })
 
-function handleSearch(keyword = searchKeyword.value) {
+function handleSearch(keyword = searchKeyword.value, cat = selectedCategory.value) {
   const q = keyword.trim()
-  if (!q) return
+  if (!q && (!cat || cat === 'all')) return
 
   const typeParam = isAllSelected.value || selectedTypes.value.length === 0
     ? undefined
@@ -86,12 +88,14 @@ function handleSearch(keyword = searchKeyword.value) {
   router.push({
     path: '/search',
     query: {
-      q,
+      ...(q ? { q } : {}),
+      ...(cat && cat !== 'all' ? { category: cat } : {}),
       ...(typeParam ? { type: typeParam } : {})
     }
   })
 }
 </script>
+
 
 <template>
   <div class="flex flex-col items-center justify-center min-h-[72vh] px-2">
@@ -103,7 +107,7 @@ function handleSearch(keyword = searchKeyword.value) {
       </div>
 
       <h1 class="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 mb-3">
-        联邦资源索引
+        PanNexus · 联邦资源索引
       </h1>
       <p class="text-sm text-zinc-500 dark:text-zinc-400 font-sans leading-relaxed">
         多源采集 · 标准化去重 · 实体聚合聚类 · 本地索引极速检索
@@ -116,7 +120,7 @@ function handleSearch(keyword = searchKeyword.value) {
         @submit.prevent="handleSearch()"
         class="relative flex items-center rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-[#111114] shadow-sm transition-all focus-within:border-zinc-900 dark:focus-within:border-zinc-100 focus-within:ring-1 focus-within:ring-zinc-900 dark:focus-within:ring-zinc-100 p-1"
       >
-        <div class="pl-3 pr-2 text-zinc-400">
+        <div class="pl-3 pr-2 text-zinc-400 shrink-0 flex items-center">
           <Search class="w-5 h-5" />
         </div>
 
@@ -126,10 +130,10 @@ function handleSearch(keyword = searchKeyword.value) {
           type="text"
           autocomplete="off"
           placeholder="搜索影视、软件、资料、磁力（按 / 快速聚焦）..."
-          class="w-full py-2.5 bg-transparent text-sm sm:text-base text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none"
+          class="flex-1 min-w-0 py-2.5 px-1 bg-transparent text-sm sm:text-base text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none"
         />
 
-        <div class="pr-1 flex items-center">
+        <div class="pr-1 flex items-center shrink-0">
           <button
             type="submit"
             class="px-5 py-2.5 rounded-md bg-zinc-900 hover:bg-zinc-800 text-white dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 text-xs font-mono font-semibold transition-colors flex items-center gap-1.5 shrink-0 shadow-sm"
@@ -140,8 +144,22 @@ function handleSearch(keyword = searchKeyword.value) {
         </div>
       </form>
 
+      <!-- Content Category Pills -->
+      <div class="flex flex-wrap items-center justify-center gap-1.5 mt-3.5 text-xs font-mono">
+        <button
+          v-for="cat in categoryList"
+          :key="cat.value"
+          type="button"
+          @click="selectedCategory = cat.value"
+          class="px-2.5 py-1 rounded-full border text-xs font-mono transition-all flex items-center gap-1"
+          :class="selectedCategory === cat.value ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 border-zinc-900 dark:border-zinc-100 font-semibold shadow-xs' : 'border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:border-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 bg-white/60 dark:bg-zinc-900/60'"
+        >
+          <span>{{ cat.label }}</span>
+        </button>
+      </div>
+
       <!-- Multi-select Filter Checkbox Buttons -->
-      <div class="flex flex-wrap items-center justify-center gap-2 mt-4 text-xs font-mono">
+      <div class="flex flex-wrap items-center justify-center gap-2 mt-3 text-xs font-mono">
         <button
           type="button"
           @click="toggleAllTypes"
@@ -166,19 +184,6 @@ function handleSearch(keyword = searchKeyword.value) {
             <Check v-if="selectedTypes.includes(item.value)" class="w-3 h-3 stroke-[3]" />
           </span>
           <span>{{ item.label }}</span>
-        </button>
-      </div>
-
-      <!-- Trending Queries -->
-      <div class="mt-8 pt-6 border-t border-zinc-200/60 dark:border-zinc-800/60 flex flex-wrap items-center justify-center gap-2 text-xs">
-        <span class="text-zinc-400 dark:text-zinc-500 font-mono mr-1">热门索引:</span>
-        <button
-          v-for="kw in trendingKeywords"
-          :key="kw"
-          @click="handleSearch(kw)"
-          class="px-2.5 py-1 rounded border border-zinc-200 dark:border-zinc-800 hover:border-zinc-400 dark:hover:border-zinc-600 bg-zinc-50 dark:bg-zinc-900/40 text-zinc-700 dark:text-zinc-300 transition-colors font-mono"
-        >
-          {{ kw }}
         </button>
       </div>
 

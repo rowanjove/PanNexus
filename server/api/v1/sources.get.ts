@@ -7,28 +7,34 @@ export default defineEventHandler(async (event) => {
   const registry = initializeSources()
   const db = getDatabase(event)
 
+  const dbRows = new Map<string, any>()
   if (db) {
     try {
-      const { results } = await db.prepare('SELECT * FROM sources ORDER BY priority DESC').all()
-      if (results && results.length > 0) {
-        return results
+      const { results } = await db.prepare('SELECT * FROM sources ORDER BY priority DESC').all<any>()
+      for (const row of results || []) {
+        dbRows.set(row.source_key, row)
       }
-    } catch {
-      // Fallback
-    }
+    } catch {}
   }
 
-  // Combine registered adapters with memory seed
-  const registered = registry.getAll()
-  const list = seedData.sources.map(s => {
-    const adapter = registered.find(a => a.id === s.sourceKey)
-    return {
-      ...s,
-      healthScore: adapter ? adapter.circuitBreaker.getHealthScore() : s.healthScore,
-      circuitState: adapter ? adapter.circuitBreaker.state : s.circuitState,
-      avgLatency: adapter && adapter.circuitBreaker.avgLatencyMs > 0 ? adapter.circuitBreaker.avgLatencyMs : s.avgLatency
-    }
-  })
+  const seedByKey = new Map(seedData.sources.map(s => [s.sourceKey, s]))
 
-  return list
+  return registry.getAll().map((adapter, index) => {
+    const dbRow = dbRows.get(adapter.id)
+    const seed = seedByKey.get(adapter.id)
+    return {
+      id: dbRow?.id || seed?.id || index + 1,
+      sourceKey: adapter.id,
+      name: adapter.name,
+      type: adapter.type,
+      enabled: dbRow ? Boolean(dbRow.enabled) : Boolean(adapter.capabilities.search || adapter.capabilities.crawl),
+      priority: adapter.priority,
+      healthScore: typeof dbRow?.health_score === 'number' ? dbRow.health_score : adapter.circuitBreaker.getHealthScore(),
+      avgLatency: adapter.circuitBreaker.avgLatencyMs || dbRow?.avg_latency || seed?.avgLatency || 0,
+      circuitState: dbRow?.circuit_state || adapter.circuitBreaker.state,
+      liveSearch: Boolean(adapter.capabilities.search),
+      liveCrawl: Boolean(adapter.capabilities.crawl),
+      lastCrawlAt: dbRow?.last_crawl_at || null
+    }
+  }).sort((a, b) => b.priority - a.priority)
 })

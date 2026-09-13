@@ -6,6 +6,17 @@ export type ResourceType =
   | 'http'
   | 'other'
 
+export type ContentCategory =
+  | 'movie'
+  | 'tv'
+  | 'anime'
+  | 'book'
+  | 'game'
+  | 'music'
+  | 'software'
+  | 'document'
+  | 'other'
+
 export type Provider =
   | 'baidu'
   | 'aliyun'
@@ -89,6 +100,8 @@ export interface CanonicalResource {
   audio?: string | null
   edition?: string | null
   normalizedKey: string
+  posterUrl?: string | null
+  backdropUrl?: string | null
   metadata?: Record<string, unknown> | string | null
   createdAt: number
   updatedAt: number
@@ -146,6 +159,7 @@ export interface SourceHealth {
 
 export interface SearchQuery {
   q: string
+  category?: string
   type?: ResourceType | 'all'
   provider?: Provider | 'all'
   resolution?: string

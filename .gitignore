@@ -1,21 +1,19 @@
-# Nuxt & Node
+node_modules
+.nuxt
 .output
 .data
-.nuxt
-.nitro
-.cache
+.wrangler
 dist
-node_modules
-*.local
-
-# Cloudflare
-.wrangler/
-
-# Logs
-npm-debug.log*
-yarn-debug.log*
-pnpm-debug.log*
-
-# OS
+dist/
+release
+release/
+*.zip
+*.tar.gz
+*.rar
+.env
+.env.*
+!.env.example
+.dev.vars
+*.log
 .DS_Store
-Thumbs.db
+

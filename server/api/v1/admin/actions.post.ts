@@ -2,60 +2,104 @@ import { defineEventHandler, readBody } from 'h3'
 import { getDatabase } from '../../../utils/db'
 import { initializeSources } from '../../../sources'
 import { processCrawlJob } from '../../../queues/crawl-consumer'
+import { assertAdmin } from '../../../utils/admin-auth'
+import { getCloudflareEnv } from '../../../utils/env'
+import { fetchDoubanHotKeywords } from '../../../core/trending/douban'
+import { ingestRawResources } from '../../../core/ingest'
+import { createD1IngestStore } from '../../../core/ingest/store'
 
 export default defineEventHandler(async (event) => {
+  assertAdmin(event)
+
   const body = await readBody(event)
   const action = body?.action
   const db = getDatabase(event)
+  const cfEnv = getCloudflareEnv(event)
 
   if (action === 'get_overview') {
     let zeroResults: any[] = []
     let blockedItems: any[] = []
+    let failedJobs: any[] = []
 
     if (db) {
       try {
         const { results: zResults } = await db
           .prepare('SELECT query, count, last_searched_at FROM zero_result_queries ORDER BY count DESC LIMIT 20')
           .all()
-        zeroResults = zResults || []
+        zeroResults = (zResults || []).map((row: any) => ({
+          ...row,
+          lastSearched: row.last_searched_at ? new Date(row.last_searched_at).toLocaleString() : ''
+        }))
+      } catch {}
 
+      try {
         const { results: bResults } = await db
           .prepare('SELECT * FROM blocked_items ORDER BY id DESC LIMIT 50')
           .all()
         blockedItems = bResults || []
       } catch {}
+
+      try {
+        const { results: fResults } = await db
+          .prepare('SELECT * FROM failed_jobs ORDER BY id DESC LIMIT 20')
+          .all()
+        failedJobs = fResults || []
+      } catch {}
     }
 
-    // Default sample if database empty
-    if (zeroResults.length === 0) {
-      zeroResults = [
-        { query: '三体 4K 60帧 未删减', count: 42, last_searched_at: Date.now() - 600000 },
-        { query: 'GTA6 PC 破解版', count: 38, last_searched_at: Date.now() - 2100000 },
-        { query: '现代操作系统 第五版 中文 pdf', count: 21, last_searched_at: Date.now() - 3600000 }
-      ]
-    }
-
-    if (blockedItems.length === 0) {
-      blockedItems = [
-        { id: 1, type: 'domain', value: 'spam-malware-ads.com', reason: '垃圾推广站', created_at: Date.now() - 86400000 }
-      ]
-    }
+    const hotKeywords = await fetchDoubanHotKeywords(10)
 
     return {
       success: true,
       zeroResults,
-      blockedItems
+      blockedItems,
+      failedJobs,
+      hotKeywords
     }
   }
 
+  if (action === 'crawl_trending') {
+    const keywords = await fetchDoubanHotKeywords(6)
+    const registry = initializeSources()
+    const searchAdapters = registry.getSearchAdapters()
+    let totalIndexed = 0
+    const store = db ? createD1IngestStore(db) : null
+
+    if (store) {
+      for (const kw of keywords) {
+        for (const adapter of searchAdapters) {
+          try {
+            const raw = await adapter.executeSearch({ q: kw })
+            if (raw.length > 0) {
+              const res = await ingestRawResources(raw, store, { sourceKey: adapter.id, event })
+              totalIndexed += res.inserted + res.updated
+            }
+          } catch {}
+        }
+      }
+    }
+    return { success: true, keywords, totalIndexed }
+  }
+
   if (action === 'trigger_crawl') {
-    const sourceId = String(body?.sourceId || 'pan_index')
-    const cfEnv = (event.context as any)?.cloudflare?.env
+    const sourceId = String(body?.sourceId || '')
+    if (sourceId === 'all') {
+      const registry = initializeSources()
+      let inserted = 0
+      let updated = 0
+      for (const adapter of registry.getCrawlAdapters()) {
+        const res = await processCrawlJob({ type: 'crawl_source', sourceId: adapter.id }, cfEnv)
+        inserted += res.inserted
+        updated += res.updated
+      }
+      return { success: true, sourceId: 'all', inserted, updated }
+    }
     const res = await processCrawlJob({ type: 'crawl_source', sourceId, cursor: undefined }, cfEnv)
     return {
       success: true,
       sourceId,
       inserted: res.inserted,
+      updated: res.updated,
       nextCursor: res.nextCursor
     }
   }
@@ -64,10 +108,18 @@ export default defineEventHandler(async (event) => {
     const registry = initializeSources()
     const sourceId = body?.sourceId
     if (sourceId && sourceId !== 'all') {
-      const adapter = registry.get(sourceId)
-      adapter?.circuitBreaker.reset()
+      registry.get(sourceId)?.circuitBreaker.reset()
     } else {
       registry.getAll().forEach(a => a.circuitBreaker.reset())
+    }
+    if (db) {
+      try {
+        if (sourceId && sourceId !== 'all') {
+          await db.prepare("UPDATE sources SET circuit_state = 'closed' WHERE source_key = ?").bind(sourceId).run()
+        } else {
+          await db.prepare("UPDATE sources SET circuit_state = 'closed'").run()
+        }
+      } catch {}
     }
     return {
       success: true,
@@ -83,11 +135,9 @@ export default defineEventHandler(async (event) => {
     if (!value) return { success: false, error: 'Value required' }
 
     if (db) {
-      try {
-        await db.prepare('INSERT OR REPLACE INTO blocked_items (type, value, reason, created_at) VALUES (?, ?, ?, ?)')
-          .bind(type, value, reason, Date.now())
-          .run()
-      } catch {}
+      await db.prepare('INSERT OR REPLACE INTO blocked_items (type, value, reason, created_at) VALUES (?, ?, ?, ?)')
+        .bind(type, value, reason, Date.now())
+        .run()
     }
 
     return { success: true, value }
@@ -96,11 +146,51 @@ export default defineEventHandler(async (event) => {
   if (action === 'remove_blocked') {
     const id = body?.id
     if (id && db) {
-      try {
-        await db.prepare('DELETE FROM blocked_items WHERE id = ?').bind(id).run()
-      } catch {}
+      await db.prepare('DELETE FROM blocked_items WHERE id = ?').bind(id).run()
     }
     return { success: true, id }
+  }
+
+  if (action === 'retry_failed_job') {
+    const id = Number(body?.id)
+    if (!id || !db) return { success: false, error: 'Valid Job ID and DB required' }
+
+    const job = await db.prepare('SELECT * FROM failed_jobs WHERE id = ?').bind(id).first<any>()
+    if (!job) return { success: false, error: 'Job not found' }
+
+    let parsedPayload: any = {}
+    try {
+      parsedPayload = JSON.parse(job.payload || '{}')
+    } catch {}
+
+    const res = await processCrawlJob({
+      type: 'crawl_source',
+      sourceId: job.source_key,
+      cursor: parsedPayload.cursor,
+      attempt: 0
+    }, cfEnv)
+
+    if (res.inserted > 0 || res.updated > 0 || res.fetched > 0) {
+      await db.prepare('DELETE FROM failed_jobs WHERE id = ?').bind(id).run()
+      return { success: true, retried: true, deleted: true, result: res }
+    }
+
+    return { success: true, retried: true, deleted: false, result: res }
+  }
+
+  if (action === 'delete_failed_job') {
+    const id = Number(body?.id)
+    if (id && db) {
+      await db.prepare('DELETE FROM failed_jobs WHERE id = ?').bind(id).run()
+    }
+    return { success: true, id }
+  }
+
+  if (action === 'clear_failed_jobs') {
+    if (db) {
+      await db.prepare('DELETE FROM failed_jobs').run()
+    }
+    return { success: true }
   }
 
   return { success: false, message: 'Unknown action' }

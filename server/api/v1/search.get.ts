@@ -2,7 +2,6 @@ import { defineEventHandler, getQuery } from 'h3'
 import type { SearchQuery, SearchResult, Provider, ResourceType, ResourceStatus } from '~/shared/types'
 import { executeSearch } from '../../utils/db'
 import { parseTitleMetadata } from '../../core/normalize/title'
-import { computeSearchCacheKey, getSearchCache, setSearchCache } from '../../utils/cache'
 import { recordSearchAnalytics } from '../../utils/analytics'
 
 export default defineEventHandler(async (event): Promise<SearchResult> => {
@@ -25,6 +24,7 @@ export default defineEventHandler(async (event): Promise<SearchResult> => {
 
   const searchQuery: SearchQuery = {
     q,
+    category: query.category ? String(query.category) : undefined,
     type: (query.type as ResourceType) || 'all',
     provider: (query.provider as Provider) || 'all',
     resolution: query.resolution ? String(query.resolution) : undefined,
@@ -32,18 +32,6 @@ export default defineEventHandler(async (event): Promise<SearchResult> => {
     sort: (query.sort as any) || 'rank',
     page: query.page ? parseInt(String(query.page), 10) : 1,
     limit: query.limit ? parseInt(String(query.limit), 10) : 15
-  }
-
-  // 1. Check L1 Memory / L2 KV Cache
-  const cacheKey = computeSearchCacheKey(searchQuery)
-  const cached = await getSearchCache(event, cacheKey)
-  if (cached) {
-    // Record analytics asynchronously even on cache hit
-    recordSearchAnalytics(event, q, cached.total)
-    return {
-      ...cached,
-      latencyMs: 1 // Instant cache hit
-    }
   }
 
   const parsedMeta = parseTitleMetadata(q)
@@ -64,11 +52,9 @@ export default defineEventHandler(async (event): Promise<SearchResult> => {
     }
   }
 
-  // 2. Set L1 & L2 Cache (TTL 5 minutes)
-  await setSearchCache(event, cacheKey, response, 300)
-
-  // 3. Record search analytics & zero result query asynchronously
+  // Record search analytics & zero result query asynchronously
   recordSearchAnalytics(event, q, result.total)
 
   return response
 })
+

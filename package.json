@@ -1,5 +1,7 @@
 {
-  "name": "metaseek",
+  "name": "pannexus",
+  "version": "1.0.0",
+  "description": "Next-Gen Federated Cloud Drive & Magnet Indexing Engine (Nuxt 3 + Cloudflare Pages + D1 FTS5)",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,8 +11,14 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "test": "vitest run",
+    "db:setup": "wrangler d1 execute metaseek-db --local --file=./database/schema.sql && wrangler d1 execute metaseek-db --local --file=./database/seed.sql",
     "d1:init": "wrangler d1 execute metaseek-db --local --file=./database/schema.sql",
-    "d1:seed": "tsx ./database/seed.ts"
+    "d1:migrate": "wrangler d1 execute metaseek-db --local --file=./database/migrations/0003_dedup_and_jobs.sql",
+    "d1:seed": "wrangler d1 execute metaseek-db --local --file=./database/seed.sql",
+    "crawler:dev": "wrangler dev --config wrangler.crawler.jsonc --test-scheduled",
+    "cf:preview": "npx wrangler pages dev dist",
+    "deploy:pages": "npx wrangler pages deploy dist",
+    "deploy:crawler": "npx wrangler deploy --config wrangler.crawler.jsonc"
   },
   "dependencies": {
     "lucide-vue-next": "^0.475.0",

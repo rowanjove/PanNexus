@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { parseTorznabXml, TorznabAdapter } from '../../server/sources/implementations/torznab.adapter'
 
 describe('Torznab Protocol Parser & Adapter', () => {
@@ -29,11 +29,23 @@ describe('Torznab Protocol Parser & Adapter', () => {
     expect(items[0].peers).toBe(25)
   })
 
-  it('executes search with circuit breaker safety', async () => {
+  it('returns no fake results when Torznab is not configured', async () => {
     const adapter = new TorznabAdapter()
     const results = await adapter.executeSearch({ q: '沙丘2' })
-    expect(results.length).toBeGreaterThan(0)
-    expect(results[0].resourceType).toBe('magnet')
-    expect(results[0].metadata?.gateway).toBe('Torznab/Jackett')
+    expect(results).toEqual([])
+  })
+
+  it('parses a real Torznab response when API is configured', async () => {
+    const adapter = new TorznabAdapter('https://indexer.example/api', 'test-key')
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(sampleXml, { status: 200 })))
+    try {
+      const results = await adapter.executeSearch({ q: '沙丘2' })
+      expect(results.length).toBe(1)
+      expect(results[0].resourceType).toBe('magnet')
+      expect(results[0].infohash).toBe('3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e')
+      expect(results[0].metadata?.gateway).toBe('Torznab')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

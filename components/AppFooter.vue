@@ -11,7 +11,7 @@
       </div>
 
       <div class="flex items-center gap-4 text-zinc-400 dark:text-zinc-600">
-        <span>MetaSeek v1.0 MVP</span>
+        <span>PanNexus v1.0.0</span>
         <NuxtLink to="/admin" class="hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors" title="管理控制台">·</NuxtLink>
         <span>Federated Resource Index</span>
       </div>

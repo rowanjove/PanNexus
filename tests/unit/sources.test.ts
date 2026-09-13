@@ -1,10 +1,16 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { initializeSources, sourceRegistry } from '../../server/sources'
-import { BaseSourceAdapter } from '../../server/sources/adapter.base'
+
+const emptyRss = `<?xml version="1.0"?><rss version="2.0"><channel></channel></rss>`
 
 describe('Federated Source Adapters Ecosystem', () => {
   beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(emptyRss, { status: 200, headers: { 'content-type': 'application/xml' } })))
     initializeSources()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('registers all federated source adapters', () => {
@@ -12,6 +18,8 @@ describe('Federated Source Adapters Ecosystem', () => {
     expect(adapters.length).toBeGreaterThanOrEqual(11)
 
     const ids = adapters.map(a => a.id)
+    expect(ids).toContain('academic_torrents')
+    expect(ids).toContain('qupansou_aggregate')
     expect(ids).toContain('magnet_index')
     expect(ids).toContain('pan_index')
     expect(ids).toContain('alist_hub')
@@ -34,7 +42,23 @@ describe('Federated Source Adapters Ecosystem', () => {
     }
   })
 
-  it('executes search on all adapters with circuit breaker isolation', async () => {
+  it('only enables live search on adapters with a real entry', () => {
+    const liveIds = sourceRegistry.getSearchAdapters().map(a => a.id)
+    expect(liveIds).toContain('nyaa_global')
+    expect(liveIds).toContain('dmhy_anime')
+    expect(liveIds).toContain('academic_torrents')
+    expect(liveIds).toContain('qupansou_aggregate')
+    expect(liveIds).toContain('ebook_library')
+    expect(liveIds).toContain('software_hub')
+    expect(liveIds).toContain('pan_index')
+    expect(liveIds).toContain('quark_share')
+    expect(liveIds).toContain('aliyun_hub')
+    expect(liveIds).toContain('115_vip_archive')
+    expect(liveIds).toContain('magnet_index')
+    expect(liveIds).not.toContain('tg_channel')
+  })
+
+  it('executes search on live adapters with circuit breaker isolation', async () => {
     const adapters = sourceRegistry.getSearchAdapters()
 
     for (const adapter of adapters) {
@@ -47,21 +71,19 @@ describe('Federated Source Adapters Ecosystem', () => {
 
   it('executes crawl on adapters supporting crawl', async () => {
     const crawlAdapters = sourceRegistry.getCrawlAdapters()
-    expect(crawlAdapters.length).toBeGreaterThanOrEqual(8)
+    expect(crawlAdapters.length).toBeGreaterThanOrEqual(3)
 
-    const alistAdapter = sourceRegistry.get('alist_hub')
-    expect(alistAdapter).toBeDefined()
-    if (alistAdapter && 'crawl' in alistAdapter) {
-      const crawlRes = await (alistAdapter as any).crawl()
-      expect(crawlRes).toHaveProperty('items')
-      expect(Array.isArray(crawlRes.items)).toBe(true)
-    }
+    const nyaa = sourceRegistry.get('nyaa_global')
+    expect(nyaa).toBeDefined()
+    const crawlRes = await nyaa!.executeCrawl()
+    expect(crawlRes).toHaveProperty('items')
+    expect(Array.isArray(crawlRes.items)).toBe(true)
   })
 
   it('safely handles empty queries without throwing', async () => {
-    const alistAdapter = sourceRegistry.get('alist_hub')
-    expect(alistAdapter).toBeDefined()
-    const results = await alistAdapter!.executeSearch({ q: '' })
+    const nyaa = sourceRegistry.get('nyaa_global')
+    expect(nyaa).toBeDefined()
+    const results = await nyaa!.executeSearch({ q: '' })
     expect(results).toEqual([])
   })
 })

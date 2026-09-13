@@ -64,9 +64,27 @@ export function isSafeUrl(rawUrl: string): { safe: boolean; reason?: string } {
       }
     }
 
-    // 4. IPv6 Loopback & link-local
-    if (host === '[::1]' || host === '::1' || host.startsWith('[fe80:') || host.startsWith('[fc') || host.startsWith('[fd')) {
+    // 4. IPv4-mapped IPv6 (::ffff:127.0.0.1 / ::ffff:7f00:1)
+    const v4mapped = host.replace(/^\[|\]$/g, '').match(/^::ffff:([0-9.]+)$/i)
+      || host.replace(/^\[|\]$/g, '').match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i)
+    if (v4mapped) {
+      if (v4mapped[1].includes('.')) {
+        return isSafeUrl(`http://${v4mapped[1]}/`)
+      }
+      const hi = parseInt(v4mapped[1], 16)
+      const lo = parseInt(v4mapped[2], 16)
+      const mapped = `${(hi >> 8) & 255}.${hi & 255}.${(lo >> 8) & 255}.${lo & 255}`
+      return isSafeUrl(`http://${mapped}/`)
+    }
+
+    // 5. IPv6 loopback, link-local, unique-local
+    const bare = host.replace(/^\[|\]$/g, '')
+    if (bare.includes(':') && (bare === '::1' || bare.startsWith('fe80:') || bare.startsWith('fc') || bare.startsWith('fd'))) {
       return { safe: false, reason: 'IPv6 local/private address is blocked' }
+    }
+
+    if (host.endsWith('.nip.io') || host.endsWith('.sslip.io') || host === 'metadata.google.internal') {
+      return { safe: false, reason: 'SSRF-prone hostname is blocked' }
     }
 
     return { safe: true }
