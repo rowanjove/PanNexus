@@ -6,7 +6,7 @@
 
 基于 Nuxt 3 + Cloudflare Pages + D1 (SQLite FTS5) + Queues + Cron Triggers 构建
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Vitest](https://img.shields.io/badge/tests-112%20passed-emerald.svg)](tests/)
 [![Cloudflare](https://img.shields.io/badge/edge-Cloudflare%20Pages%20%2B%20D1-orange.svg)](https://pages.cloudflare.com/)
 [![Vue 3](https://img.shields.io/badge/vue-3.5-brightgreen.svg)](https://vuejs.org/)
@@ -196,4 +196,4 @@ pnpm deploy:crawler
 
 ## 开源协议
 
-本项目基于 [MIT License](./LICENSE) 开源发布。
+本项目基于 [Apache-2.0 License](./LICENSE) 开源发布。
